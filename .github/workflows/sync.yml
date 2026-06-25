@@ -17,7 +17,8 @@ jobs:
     - name: Checkout local fork
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0 # 拉取全部历史记录以确保分支对比准确
+        ref: master        # 明确指定只拉 master 分支
+        fetch-depth: 1 
 
     # Step 2: 配置 Git 机器人身份（用于在发现更新时提交同步）
     - name: Configure Git
@@ -29,7 +30,7 @@ jobs:
     - name: Fetch upstream changes
       run: |
         git remote add upstream https://github.com/SteamDatabase/GameTracking-CS2.git
-        git fetch upstream master
+        git fetch upstream master --depth=1
 
     # Step 4: 检查官方仓库是否有新提交，并根据结果执行不同分支逻辑
     - name: Check for new commits and dispatch
