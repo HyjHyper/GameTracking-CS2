@@ -1,0 +1,89 @@
+name: CS2 GameTracking Monitor
+
+# 配置触发条件
+on:
+  schedule:
+    # 采用 Linux Cron 表达式。由于 GitHub 限制，免费账户最低间隔通常为 5 分钟
+    # */5 * * * * 表示每隔 5 分钟自动执行一次全流程检查
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # 允许你在 GitHub 页面上随时手动点击按钮测试运行
+
+jobs:
+  check-and-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: 拉取你当前 Fork 仓库的代码
+    - name: Checkout local fork
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # 拉取全部历史记录以确保分支对比准确
+
+    # Step 2: 配置 Git 机器人身份（用于在发现更新时提交同步）
+    - name: Configure Git
+      run: |
+        git config --global user.name "CS2-Monitor-Bot"
+        git config --global user.email "bot@github.com"
+
+    # Step 3: 添加官方上游源（Upstream）并拉取对比
+    - name: Fetch upstream changes
+      run: |
+        git remote add upstream https://github.com/SteamDatabase/GameTracking-CS2.git
+        git fetch upstream master
+
+    # Step 4: 检查官方仓库是否有新提交，并根据结果执行不同分支逻辑
+    - name: Check for new commits and dispatch
+      id: check_commits
+      run: |
+        # 对比本地 master 分支与官方 upstream/master 分支的最新 SHA 校验码
+        LOCAL_SHA=$(git rev-parse HEAD)
+        UPSTREAM_SHA=$(git rev-parse upstream/master)
+        
+        echo "本地最新提交 SHA: $LOCAL_SHA"
+        echo "官方最新提交 SHA: $UPSTREAM_SHA"
+        
+        if [ "$LOCAL_SHA" != "$UPSTREAM_SHA" ]; then
+          echo "检测到 V 社后台更新！正在同步仓库..."
+          
+          # 将官方最新代码强行合并到你的 Fork 仓库中
+          git merge upstream/master --ff-only
+          git push origin master
+          
+          # 提取官方最新的一条 Commit Message 作为通知文本
+          COMMIT_MSG=$(git log -1 --pretty=%B upstream/master | head -n 1)
+          COMMIT_AUTHOR=$(git log -1 --pretty=%an upstream/master)
+          COMMIT_URL="https://github.com/SteamDatabase/GameTracking-CS2/commit/$UPSTREAM_SHA"
+          
+          # 将变量保存到系统环境变量中，供后续 Step 调用
+          echo "has_updates=true" >> $GITHUB_OUTPUT
+          echo "commit_msg=$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+          echo "commit_url=$COMMIT_URL" >> $GITHUB_OUTPUT
+        else
+          echo "暂无更新。"
+          echo "has_updates=false" >> $GITHUB_OUTPUT
+        fi
+
+    # Step 5: 当且仅当有新更新时（has_updates == 'true'），向你的自定义端口服务器发送请求
+    - name: Send Webhook to Your Server
+      if: steps.check_commits.outputs.has_updates == 'true'
+      run: |
+        # 替换为你的服务器公网 IP / 穿透域名 以及你自定义的端口名
+        # 例如：你的服务器 IP 是 123.123.123.123，自定义端口是 8888
+        SERVER_URL="http://20.207.95.79:5724/github-webhook"
+        
+        # 使用 curl 发送标准包含 Commit 数据的 POST 请求
+        # 数据结构模拟了 GitHub 原生 Webhook 格式，保证前文编写的 Python 接收脚本开箱即用
+        curl -X POST "$SERVER_URL" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "repository": { "full_name": "SteamDatabase/GameTracking-CS2" },
+            "ref": "refs/heads/master",
+            "commits": [
+              {
+                "message": "'"${{ steps.check_commits.outputs.commit_msg }}"'",
+                "author": { "name": "'"${{ steps.check_commits.outputs.commit_author }}"'" },
+                "url": "'"${{ steps.check_commits.outputs.commit_url }}"'"
+              }
+            ]
+          }'
