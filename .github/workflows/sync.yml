@@ -65,26 +65,38 @@ jobs:
           echo "has_updates=false" >> $GITHUB_OUTPUT
         fi
 
-    # Step 5: 当且仅当有新更新时（has_updates == 'true'），向你的自定义端口服务器发送请求
+   # Step 5: 采用 Python 原生组件安全发送 Webhook（彻底解决 400 格式错误）
     - name: Send Webhook to Your Server
       if: steps.check_commits.outputs.has_updates == 'true'
+      env:
+        COMMIT_MSG: ${{ steps.check_commits.outputs.commit_msg }}
+        COMMIT_AUTHOR: ${{ steps.check_commits.outputs.commit_author }}
+        COMMIT_URL: ${{ steps.check_commits.outputs.commit_url }}
       run: |
-        # 替换为你的服务器公网 IP / 穿透域名 以及你自定义的端口名
-        # 例如：你的服务器 IP 是 123.123.123.123，自定义端口是 8888
-        SERVER_URL="http://20.207.95.79:5724/github-webhook"
-        
-        # 使用 curl 发送标准包含 Commit 数据的 POST 请求
-        # 数据结构模拟了 GitHub 原生 Webhook 格式，保证前文编写的 Python 接收脚本开箱即用
-        curl -X POST "$SERVER_URL" \
-          -H "Content-Type: application/json" \
-          -d '{
+        python - <<EOF
+        import requests
+        import json
+        import os
+
+        server_url = "http://52.240.186.19:8888/github-webhook" # 替换为你的真实公网URL
+
+        # 原生字典构造，天然免疫任何特殊字符与缩进污染
+        payload = {
             "repository": { "full_name": "SteamDatabase/GameTracking-CS2" },
             "ref": "refs/heads/master",
             "commits": [
-              {
-                "message": "'"${{ steps.check_commits.outputs.commit_msg }}"'",
-                "author": { "name": "'"${{ steps.check_commits.outputs.commit_author }}"'" },
-                "url": "'"${{ steps.check_commits.outputs.commit_url }}"'"
-              }
+                {
+                    "message": os.environ.get('COMMIT_MSG', ''),
+                    "author": { "name": os.environ.get('COMMIT_AUTHOR', '') },
+                    "url": os.environ.get('COMMIT_URL', '')
+                }
             ]
-          }'
+        }
+
+        try:
+            response = requests.post(server_url, json=payload, timeout=10)
+            print(f"服务器返回状态码: {response.status_code}")
+            print(f"服务器返回内容: {response.text}")
+        except Exception as e:
+            print(f"投递发生异常: {e}")
+        EOF
