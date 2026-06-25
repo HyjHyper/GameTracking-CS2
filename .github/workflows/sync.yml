@@ -78,7 +78,7 @@ jobs:
         import json
         import os
 
-        server_url = "http://52.240.186.19:8888/github-webhook" # 替换为你的真实公网URL
+        server_url = "http://20.207.95.79:5724/github-webhook" # 替换为你的真实公网URL
 
         # 原生字典构造，天然免疫任何特殊字符与缩进污染
         payload = {
